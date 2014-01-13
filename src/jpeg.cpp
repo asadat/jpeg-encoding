@@ -18,6 +18,16 @@ CVD::Image<CVD::Rgb<CVD::byte> > orgImg;
 
 Matrix<8> T8;
 
+Matrix<8,8> quantizers = Data (
+            16, 11, 10, 16, 24, 40, 51, 61,
+             12, 12, 14, 19, 26, 58, 60, 55,
+             14, 13, 16, 24, 40, 57, 69, 56,
+             14, 17, 22, 29, 51, 87, 80, 62,
+             18, 22, 37, 56, 68, 109, 103, 77,
+             24, 35, 55, 64, 81, 104, 113, 92,
+             49, 64, 78, 87, 103, 121, 120, 101,
+             72, 92, 95, 98, 112, 100, 103, 99);
+
 Vector<3,int> RGB2YUV(CVD::Rgb<CVD::byte> rgb)
 {
     Vector<3> yuv;
@@ -45,10 +55,24 @@ CVD::Rgb<CVD::byte> YUV2RGB(Vector<3,double> yuv)
      return rgb;
 }
 
+void quantize(Matrix<8,8,int> &m)
+{
+    for(int i=0; i<8; i++)
+        for(int j=0; j<8; j++)
+            m[i][j] = m[i][j]/ quantizers[i][j];
+}
+
+void scale(Matrix<8,8,int> &m)
+{
+    for(int i=0; i<8; i++)
+        for(int j=0; j<8; j++)
+            m[i][j] = m[i][j] * quantizers[i][j];
+}
+
 void filter()
 {
     int size = tempImg.size().x;
-    Matrix<512> img[3];
+    Matrix<512,512,int> img[3];
 
     for(int i=0; i< 512; i++)
         for(int j=0; j< 512; j++)
@@ -80,40 +104,35 @@ void filter()
     for(int i=0; i<size/8; i++)
         for(int j=0; j<size/8; j++)
         {
-            //printf("coding: %d\t%d\n",i,j);
-//            for(int k=0; k<8; k++)
-//                for(int w=0; w<8; w++)
-                {
-                    //img[0][i*8+k][j*8+w] = T8 * (img[0][i*8+k][j*8+w] * T8.T());
+            Matrix<8,8,int> img8x8[3];
+            img8x8[0] = T8 * (img[0].slice(i*8,j*8,8,8 ) * T8.T());
+            img8x8[1] = T8 * (img[1].slice(i*8,j*8,8,8 ) * T8.T());
+            img8x8[2] = T8 * (img[2].slice(i*8,j*8,8,8 ) * T8.T());
 
-                    Matrix<8,8,int> img8x8[3];
-                    img8x8[0] = 0.1 * T8 * (img[0].slice(i*8,j*8,8,8 ) * T8.T());
-                    img8x8[1] = 0.1 * T8 * (img[1].slice(i*8,j*8,8,8 ) * T8.T());
-                    img8x8[2] = 0.1 * T8 * (img[2].slice(i*8,j*8,8,8 ) * T8.T());
+            quantize(img8x8[0]);
+            quantize(img8x8[1]);
+            quantize(img8x8[2]);
 
-                    img[0].slice(i*8,j*8,8,8) = 10 * img8x8[0];
-                    img[1].slice(i*8,j*8,8,8) = 10 * img8x8[1];
-                    img[2].slice(i*8,j*8,8,8) = 10 * img8x8[2];
-                }
+            img[0].slice(i*8,j*8,8,8) = img8x8[0];
+            img[1].slice(i*8,j*8,8,8) = img8x8[1];
+            img[2].slice(i*8,j*8,8,8) = img8x8[2];
         }
 
     for(int i=0; i<size/8; i++)
         for(int j=0; j<size/8; j++)
         {
-            //printf("encoding: %d\t%d\n",i,j);
-//            for(int k=0; k<8; k++)
-//                for(int w=0; w<8; w++)
-                {
-                    //img[0][i*8+k][j*8+w] = T8 * (img[0][i*8+k][j*8+w] * T8.T());
-                    Matrix<8,8> img8x8[3];
-                    img8x8[0] = T8.T() * (img[0].slice(i*8,j*8,8,8 ) * T8);
-                    img8x8[1] = T8.T() * (img[1].slice(i*8,j*8,8,8 ) * T8);
-                    img8x8[2] = T8.T() * (img[2].slice(i*8,j*8,8,8 ) * T8);
+            Matrix<8,8,int> img8x8[3];
+            img8x8[0] = img[0].slice(i*8,j*8,8,8 );
+            img8x8[1] = img[1].slice(i*8,j*8,8,8 );
+            img8x8[2] = img[2].slice(i*8,j*8,8,8 );
 
-                    img[0].slice(i*8,j*8,8,8) = img8x8[0];
-                    img[1].slice(i*8,j*8,8,8) = img8x8[1];
-                    img[2].slice(i*8,j*8,8,8) = img8x8[2];
-                }
+            scale(img8x8[0]);
+            scale(img8x8[1]);
+            scale(img8x8[2]);
+
+            img[0].slice(i*8,j*8,8,8) = T8.T() * (img8x8[0] * T8);
+            img[1].slice(i*8,j*8,8,8) = T8.T() * (img8x8[1] * T8);
+            img[2].slice(i*8,j*8,8,8) = T8.T() * (img8x8[2] * T8);
         }
 
 
@@ -129,7 +148,6 @@ void filter()
             CVD::Rgb<CVD::byte> rgb = YUV2RGB(yuv);
             tempImg[i][j] = rgb;
         }
-
 }
 
 void display()
@@ -138,38 +156,40 @@ void display()
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  glRasterPos2f(-1,-0.5);
+  glRasterPos2f(-1,-1);
   glDrawPixels(orgImg);
 
-  glRasterPos2f(0,-0.5);
+  glRasterPos2f(0,-1);
   glDrawPixels(tempImg);
 
   glutSwapBuffers();
 }
 
 int main(int argc, char** argv) {
-  glutInit(&argc, argv);
-
-  glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
-  glutInitWindowSize(1024,1024);
-  glutCreateWindow("OpenGL glDrawPixels demo");
-
-  CVD::img_load(tempImg,  "neda.jpg" );
-  CVD::img_load(orgImg_,  "neda.jpg" );
-  CVD::img_load(orgImg,  "neda.jpg" );
 
 
-  filter();
-  glutDisplayFunc(display);
-  //glutReshapeFunc(reshape);
-  //glutMouseFunc(mouse_button);
-  //glutMotionFunc(mouse_motion);
-  //glutKeyboardFunc(keyboard);
-  //glutIdleFunc(idle);
+    CVD::img_load(tempImg,  "neda.jpg" );
+    CVD::img_load(orgImg_,  "neda.jpg" );
+    CVD::img_load(orgImg,  "neda.jpg" );
 
-  glEnable(GL_DEPTH_TEST);
-  //glClearColor(0.0, 0.0, 0.0, 1.0);
-  //glPointSize(2);
+    glutInit(&argc, argv);
 
-  glutMainLoop();
+    glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
+    glutInitWindowSize(2*orgImg.size().x, orgImg.size().y);
+    glutCreateWindow("OpenGL glDrawPixels demo");
+
+
+    glutDisplayFunc(display);
+    //glutReshapeFunc(reshape);
+    //glutMouseFunc(mouse_button);
+    //glutMotionFunc(mouse_motion);
+    //glutKeyboardFunc(keyboard);
+    //glutIdleFunc(idle);
+
+    glEnable(GL_DEPTH_TEST);
+    //glClearColor(0.0, 0.0, 0.0, 1.0);
+    //glPointSize(2);
+
+    filter();
+    glutMainLoop();
 }
