@@ -13,6 +13,7 @@
 using namespace TooN;
 
 CVD::Image<CVD::Rgb<CVD::byte> > tempImg;
+CVD::Image<CVD::Rgb<CVD::byte> > orgImg_;
 CVD::Image<CVD::Rgb<CVD::byte> > orgImg;
 
 Matrix<8> T8;
@@ -49,14 +50,20 @@ void filter()
     int size = tempImg.size().x;
     Matrix<512> img[3];
 
+    for(int i=0; i< 512; i++)
+        for(int j=0; j< 512; j++)
+        {
+            orgImg[i][j] = tempImg[511-i][j];
+        }
+
     //convert rgb to yuv
     for(int i=0; i< 512; i++)
         for(int j=0; j< 512; j++)
         {
             Vector<3> yuvv =  RGB2YUV(tempImg[i][j]);
-            img[0][i][j] = yuvv[0];
-            img[1][i][j] = yuvv[1];
-            img[2][i][j] = yuvv[2];
+            img[0][511-i][j] = yuvv[0];
+            img[1][511-i][j] = yuvv[1];
+            img[2][511-i][j] = yuvv[2];
         }
 
     //make T8 matrix
@@ -78,13 +85,15 @@ void filter()
 //                for(int w=0; w<8; w++)
                 {
                     //img[0][i*8+k][j*8+w] = T8 * (img[0][i*8+k][j*8+w] * T8.T());
-                    img[0].slice(i*8,j*8,8,8) = T8 * (img[0].slice(i*8,j*8,8,8 ) * T8.T());
-                    img[1].slice(i*8,j*8,8,8) = T8 * (img[1].slice(i*8,j*8,8,8 ) * T8.T());
-                    img[2].slice(i*8,j*8,8,8) = T8 * (img[2].slice(i*8,j*8,8,8 ) * T8.T());
 
-//                    img[0].slice(i*8+2,j*8+2,6,6) = Zeros(6,6);
-//                    img[1].slice(i*8+2,j*8+2,6,6) = Zeros(6,6);
-//                    img[2].slice(i*8+2,j*8+2,6,6) = Zeros(6,6);
+                    Matrix<8,8,int> img8x8[3];
+                    img8x8[0] = 0.1 * T8 * (img[0].slice(i*8,j*8,8,8 ) * T8.T());
+                    img8x8[1] = 0.1 * T8 * (img[1].slice(i*8,j*8,8,8 ) * T8.T());
+                    img8x8[2] = 0.1 * T8 * (img[2].slice(i*8,j*8,8,8 ) * T8.T());
+
+                    img[0].slice(i*8,j*8,8,8) = 10 * img8x8[0];
+                    img[1].slice(i*8,j*8,8,8) = 10 * img8x8[1];
+                    img[2].slice(i*8,j*8,8,8) = 10 * img8x8[2];
                 }
         }
 
@@ -96,9 +105,14 @@ void filter()
 //                for(int w=0; w<8; w++)
                 {
                     //img[0][i*8+k][j*8+w] = T8 * (img[0][i*8+k][j*8+w] * T8.T());
-                    img[0].slice(i*8,j*8,8,8) = T8.T() * (img[0].slice(i*8,j*8,8,8 ) * T8);
-                    img[1].slice(i*8,j*8,8,8) = T8.T() * (img[1].slice(i*8,j*8,8,8 ) * T8);
-                    img[2].slice(i*8,j*8,8,8) = T8.T() * (img[2].slice(i*8,j*8,8,8 ) * T8);
+                    Matrix<8,8> img8x8[3];
+                    img8x8[0] = T8.T() * (img[0].slice(i*8,j*8,8,8 ) * T8);
+                    img8x8[1] = T8.T() * (img[1].slice(i*8,j*8,8,8 ) * T8);
+                    img8x8[2] = T8.T() * (img[2].slice(i*8,j*8,8,8 ) * T8);
+
+                    img[0].slice(i*8,j*8,8,8) = img8x8[0];
+                    img[1].slice(i*8,j*8,8,8) = img8x8[1];
+                    img[2].slice(i*8,j*8,8,8) = img8x8[2];
                 }
         }
 
@@ -140,8 +154,9 @@ int main(int argc, char** argv) {
   glutInitWindowSize(1024,1024);
   glutCreateWindow("OpenGL glDrawPixels demo");
 
-  CVD::img_load(tempImg,  "marbles.jpg" );
-  CVD::img_load(orgImg,  "marbles.jpg" );
+  CVD::img_load(tempImg,  "neda.jpg" );
+  CVD::img_load(orgImg_,  "neda.jpg" );
+  CVD::img_load(orgImg,  "neda.jpg" );
 
 
   filter();
