@@ -21,7 +21,7 @@ CVD::Image<CVD::Rgb<CVD::byte> > cobmined2Draw;
 int image_width;
 int image_height;
 
-int qual=40;
+int qual=0;
 
 Matrix<8,8,double> T8;
 
@@ -134,6 +134,67 @@ void Decode(Matrix<Dynamic,Dynamic,int> &input,Matrix<Dynamic,Dynamic,int> &outp
         }
 }
 
+void DownSample( Matrix<Dynamic,Dynamic,int> &input,  Matrix<Dynamic,Dynamic,int> &output, int n)
+{
+    int w = input.num_cols();
+    int h = input.num_rows();
+
+    for(int i=0; i<h/n; i++)
+        for(int j=0; j<w/n; j++)
+        {
+            double sum = 0;
+            for(int ii=0; ii<n; ii++)
+                for(int jj=0; jj<n; jj++)
+                {
+                    sum += input[i*n+ii][j*n+jj];
+                }
+
+            output[i][j] = sum/(n*n);
+        }
+}
+
+void UpSample( Matrix<Dynamic,Dynamic,int> &input,  Matrix<Dynamic,Dynamic,int> &output, int n)
+{
+    int w = input.num_cols();
+    int h = input.num_rows();
+
+    for(int i=0; i<h*n; i++)
+        for(int j=0; j<w*n; j++)
+        {
+            output[i][j] = input[floor(i/n)][floor(j/n)];
+        }
+}
+
+void HierarchicalJpeg( Matrix<Dynamic,Dynamic,int> &data, bool lum)
+{
+    int w = data.num_cols();
+    int h = data.num_rows();
+
+    Matrix<Dynamic,Dynamic,int> data_encoded(h, w);
+    Matrix<Dynamic,Dynamic,int> data_up(h, w);
+    Matrix<Dynamic,Dynamic,int> data_encoded_2(h/2, w/2);
+    Matrix<Dynamic,Dynamic,int> data_encoded_4(h/4, w/4);
+    Matrix<Dynamic,Dynamic,int> data_decoded_2(h/2, w/2);
+    Matrix<Dynamic,Dynamic,int> data_decoded_4(h/4, w/4);
+    Matrix<Dynamic,Dynamic,int> data_2(h/2, w/2);
+    Matrix<Dynamic,Dynamic,int> data_4(h/4, w/4);
+
+    // Start encoding
+    DownSample(data,data_2,2);
+    Encode(data_2,data_encoded_2,lum);
+    Decode(data_encoded_2, data_decoded_2, lum);
+    UpSample(data_decoded_2,data_up,2);
+
+    Matrix<Dynamic,Dynamic,int> data_diff(h, w);
+    data_diff = data - data_up;
+    Encode(data_diff, data_encoded, lum);
+
+    Decode(data_encoded, data, lum);
+    Decode(data_encoded_2, data_decoded_2, lum);
+    UpSample(data_decoded_2, data_up,2);
+
+    data = data_up + data;
+}
 void JpegEncoding()
 {
     //int size = tempImg.size().x;
@@ -145,9 +206,9 @@ void JpegEncoding()
     Matrix<Dynamic,Dynamic,int> img_u(image_height_padded, image_width_padded);
     Matrix<Dynamic,Dynamic,int> img_v(image_height_padded, image_width_padded);
 
-    Matrix<Dynamic,Dynamic,int> img_y_encoded(image_height_padded, image_width_padded);
-    Matrix<Dynamic,Dynamic,int> img_u_encoded(image_height_padded, image_width_padded);
-    Matrix<Dynamic,Dynamic,int> img_v_encoded(image_height_padded, image_width_padded);
+   // Matrix<Dynamic,Dynamic,int> img_y_encoded(image_height_padded, image_width_padded);
+   // Matrix<Dynamic,Dynamic,int> img_u_encoded(image_height_padded, image_width_padded);
+   // Matrix<Dynamic,Dynamic,int> img_v_encoded(image_height_padded, image_width_padded);
 
     //convert rgb to yuv
     for(int i=0; i< image_height_padded; i++)
@@ -162,17 +223,22 @@ void JpegEncoding()
             img_v[i][j] = yuvv[2];
         }
 
+    HierarchicalJpeg(img_y, true);
+    HierarchicalJpeg(img_u, false);
+    HierarchicalJpeg(img_v, false);
 
-    // Start encoding
-    Encode(img_y, img_y_encoded, true);
-    Encode(img_u, img_u_encoded, false);
-    Encode(img_v, img_v_encoded, false);
+    // Encode(img_y, img_y_encoded, true);
+    //Encode(img_u, img_u_encoded, false);
+    //Encode(img_v, img_v_encoded, false);
+
 
 
     // Start decoding
-    Decode(img_y_encoded, img_y, true);
-    Decode(img_u_encoded, img_u, false);
-    Decode(img_v_encoded, img_v, false);
+    //Decode(img_y_encoded, img_y, true);
+
+
+    //Decode(img_u_encoded, img_u, false);
+    //Decode(img_v_encoded, img_v, false);
 
     tempImg.resize(CVD::ImageRef(image_width, image_height));
     //convert yuv to rgb
