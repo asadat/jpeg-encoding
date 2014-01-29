@@ -21,7 +21,7 @@ CVD::Image<CVD::Rgb<CVD::byte> > cobmined2Draw;
 int image_width;
 int image_height;
 
-int qual=0;
+double qual = 1;
 
 Matrix<8,8,double> T8;
 
@@ -48,7 +48,7 @@ Matrix<8,8,double> chrom_quantizers = Data (
 Vector<3> RGB2YUV(CVD::Rgb<CVD::byte> rgb)
 {
     Vector<3> yuv;
-    Vector<3> rgbv = makeVector(rgb.red-128, rgb.green-128, rgb.blue-128);
+    Vector<3> rgbv = makeVector(rgb.red-127, rgb.green-127, rgb.blue-127);
     Matrix<3> m = Data(0.299, 0.587, 0.114,
                        -0.14713, -0.28886, 0.436,
                        0.615, -0.51499, -0.10001);
@@ -62,7 +62,7 @@ int cut(int a, int b)
     else
         return a;
 
-    //return a<b?a:b;
+    return a<b?a:b;
 }
 
 CVD::Rgb<CVD::byte> YUV2RGB(Vector<3,double> yuv)
@@ -75,9 +75,9 @@ CVD::Rgb<CVD::byte> YUV2RGB(Vector<3,double> yuv)
                        1, 2.03211, 0);
 
      Vector<3> yuvv = m*yuv;
-     rgb.red = cut(yuvv[0]+128,255);
-     rgb.green = cut(yuvv[1]+128,255);
-     rgb.blue = cut(yuvv[2]+128,255);
+     rgb.red = cut(yuvv[0]+127,255);
+     rgb.green = cut(yuvv[1]+127,255);
+     rgb.blue = cut(yuvv[2]+127,255);
 
      return rgb;
 }
@@ -89,8 +89,16 @@ void quantize(Matrix<8,8,double> &m, bool lum)
         for(int j=0; j<8; j++)
         {
             double q = (lum)? lumin_quantizers[i][j] : chrom_quantizers[i][j];
-            q += qual;
+            q *= qual;
             m[i][j] = m[i][j]/q;
+            if(m[i][j] - floor(m[i][j]) > 0.5)
+            {
+                m[i][j] = ceil(m[i][j]);
+            }
+            else
+            {
+                m[i][j] = floor(m[i][j]);
+            }
         }
 }
 
@@ -100,7 +108,7 @@ void scale(Matrix<8,8,double> &m, bool lum)
         for(int j=0; j<8; j++)
         {
             double q = (lum)? lumin_quantizers[i][j] : chrom_quantizers[i][j];
-            q += qual;
+            q *= qual;
             m[i][j] = m[i][j] * q;
         }
 }
@@ -112,10 +120,10 @@ void Encode(Matrix<Dynamic,Dynamic,int> &input,Matrix<Dynamic,Dynamic,int> &outp
     for(int i=0; i<h/8; i++)
         for(int j=0; j<w/8; j++)
         {
-            Matrix<8,8,double> img8x8[3];
-            img8x8[0] = T8 * (input.slice(i*8,j*8,8,8 ) * T8.T());
-            quantize(img8x8[0], luminance);
-            output.slice(i*8,j*8,8,8) = img8x8[0];
+            Matrix<8,8,double> img8x8;//[3];
+            img8x8 = T8 * (input.slice(i*8,j*8,8,8 ) * T8.T());
+            quantize(img8x8, luminance);
+            output.slice(i*8,j*8,8,8) = img8x8;
         }
 }
 
@@ -127,10 +135,10 @@ void Decode(Matrix<Dynamic,Dynamic,int> &input,Matrix<Dynamic,Dynamic,int> &outp
     for(int i=0; i<h/8; i++)
         for(int j=0; j<w/8; j++)
         {
-            Matrix<8,8,double> img8x8[3];
-            img8x8[0] = input.slice(i*8,j*8,8,8 );
-            scale(img8x8[0], luminance);
-            output.slice(i*8,j*8,8,8) = T8.T() * (img8x8[0] * T8);
+            Matrix<8,8,double> img8x8;
+            img8x8 = input.slice(i*8,j*8,8,8 );
+            scale(img8x8, luminance);
+            output.slice(i*8,j*8,8,8) = T8.T() * (img8x8 * T8);
         }
 }
 
@@ -161,6 +169,13 @@ void UpSample( Matrix<Dynamic,Dynamic,int> &input,  Matrix<Dynamic,Dynamic,int> 
     for(int i=0; i<h*n; i++)
         for(int j=0; j<w*n; j++)
         {
+//            int iii,jjj,ii,jj;
+//            ii = floor(i/n);
+//            jj = floor(j/n);
+
+//            iii = ceil(i/n);
+//            jjj = ceil(j/n);
+
             output[i][j] = input[floor(i/n)][floor(j/n)];
         }
 }
@@ -172,6 +187,8 @@ void HierarchicalJpeg( Matrix<Dynamic,Dynamic,int> &data, bool lum)
 
     Matrix<Dynamic,Dynamic,int> data_encoded(h, w);
     Matrix<Dynamic,Dynamic,int> data_up(h, w);
+    Matrix<Dynamic,Dynamic,int> data_up_last(h/2, w/2);
+    Matrix<Dynamic,Dynamic,int> data_up_2(h/2, w/2);
     Matrix<Dynamic,Dynamic,int> data_encoded_2(h/2, w/2);
     Matrix<Dynamic,Dynamic,int> data_encoded_4(h/4, w/4);
     Matrix<Dynamic,Dynamic,int> data_decoded_2(h/2, w/2);
@@ -180,20 +197,30 @@ void HierarchicalJpeg( Matrix<Dynamic,Dynamic,int> &data, bool lum)
     Matrix<Dynamic,Dynamic,int> data_4(h/4, w/4);
 
     // Start encoding
-    DownSample(data,data_2,2);
-    Encode(data_2,data_encoded_2,lum);
+    DownSample(data,data_2, 2);
+    DownSample(data_2, data_4, 2);
+
+    Encode(data_4, data_encoded_4, lum);
+    Decode(data_encoded_4, data_decoded_4, lum);
+    UpSample(data_decoded_4, data_up_2, 2);
+    Matrix<Dynamic,Dynamic,int> data_diff_2(h/2, w/2);
+    data_diff_2 = data_2 - data_up_2;
+
+    Encode(data_diff_2, data_encoded_2, lum);
     Decode(data_encoded_2, data_decoded_2, lum);
-    UpSample(data_decoded_2,data_up,2);
+    data_up_last = data_decoded_2 + data_up_2;
+    UpSample(data_up_last,data_up,2);
+    printf("1\n");
 
     Matrix<Dynamic,Dynamic,int> data_diff(h, w);
     data_diff = data - data_up;
     Encode(data_diff, data_encoded, lum);
 
     Decode(data_encoded, data, lum);
-    Decode(data_encoded_2, data_decoded_2, lum);
-    UpSample(data_decoded_2, data_up,2);
+    //Decode(data_encoded_2, data_decoded_2, lum);
+    //UpSample(data_decoded_2, data_up,2);
 
-    data = data_up + data;
+    data = data + data_up;
 }
 void JpegEncoding()
 {
@@ -201,10 +228,20 @@ void JpegEncoding()
     int image_height_padded = ceil(image_height/8.0)*8;
     int image_width_padded  = ceil(image_width/8.0)*8;
 
+    int image_height_padded_2 = ceil(image_height/16.0)*8;
+    int image_width_padded_2  = ceil(image_width/16.0)*8;
+
+
     //printf("%d %d \n", image_height_padded, image_width_padded);
     Matrix<Dynamic,Dynamic,int> img_y(image_height_padded, image_width_padded);
     Matrix<Dynamic,Dynamic,int> img_u(image_height_padded, image_width_padded);
     Matrix<Dynamic,Dynamic,int> img_v(image_height_padded, image_width_padded);
+
+    Matrix<Dynamic,Dynamic,int> img_u_2(image_height_padded_2, image_width_padded_2);
+    img_u_2 = Zeros(image_height_padded_2, image_width_padded_2);
+    Matrix<Dynamic,Dynamic,int> img_v_2(image_height_padded_2, image_width_padded_2);
+    img_v_2 = Zeros(image_height_padded_2, image_width_padded_2);
+
 
    // Matrix<Dynamic,Dynamic,int> img_y_encoded(image_height_padded, image_width_padded);
    // Matrix<Dynamic,Dynamic,int> img_u_encoded(image_height_padded, image_width_padded);
@@ -221,12 +258,29 @@ void JpegEncoding()
             img_y[i][j] = yuvv[0];
             img_u[i][j] = yuvv[1];
             img_v[i][j] = yuvv[2];
+
+//            img_u_2[floor(i/2)][floor(j/2)] += 0.5 * yuvv[1];
+//            img_v_2[floor(i/2)][floor(j/2)] += 0.5 * yuvv[2];
+
+//            if(i<image_height_padded_2 && j<image_width_padded_2)
+//            {
+//                int jx_2 = (j >= image_width/2) ? image_width/2-1 : j;
+//                int iy_2 = (i >= image_height/2) ? image_height/2-1 : i;
+
+//                img_u[i][j] = yuvv[1];
+//                img_v[i][j] = yuvv[2];
+//            }
         }
 
-    HierarchicalJpeg(img_y, true);
-    HierarchicalJpeg(img_u, false);
-    HierarchicalJpeg(img_v, false);
+    DownSample(img_u, img_u_2, 2);
+    DownSample(img_v, img_v_2, 2);
 
+    HierarchicalJpeg(img_y, true);
+    HierarchicalJpeg(img_u_2, false);
+    HierarchicalJpeg(img_v_2, false);
+
+    UpSample(img_u_2, img_u, 2);
+    UpSample(img_v_2, img_v, 2);
     // Encode(img_y, img_y_encoded, true);
     //Encode(img_u, img_u_encoded, false);
     //Encode(img_v, img_v_encoded, false);
@@ -284,6 +338,7 @@ void display()
   glRasterPos2f(-1,-1);
   CVD::glDrawPixels(cobmined2Draw);
 
+  //CVD::glDrawText("Hello!");
   glutSwapBuffers();
 }
 
@@ -295,18 +350,19 @@ void keyboard_event(unsigned char key, int x, int y)
         update = false;
         if(key == '=')
         {
-            qual += 20;
+            qual += 0.2;
             JpegEncoding();
             display();
         }
         else if(key == '-')
         {
-            qual -= 20;
+            qual = (qual-0.2 > 0)?qual-0.2:qual;
+
             JpegEncoding();
             display();
         }
 
-        printf("Qual: %d\n", qual);
+        printf("Qual: %f\n", qual);
     }
 }
 
@@ -333,6 +389,7 @@ int main(int argc, char** argv) {
                 T8[i][j] = 0.5*cos((2*j+1)*i*3.14/16);
         }
 
+    qual = atof(argv[2]);
     //CVD::img_load(tempImg,  argv[1] );
    // CVD::img_load(orgImg_,  argv[1] );
     CVD::img_load(orgImg,   argv[1] );
